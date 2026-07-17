@@ -1,0 +1,321 @@
+// NovaBank Prisma schema.
+// Run `npx prisma migrate dev` to create the database, and
+// `npx prisma db seed` to populate demo data.
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+// ---------------------------------------------------------------------------
+// Enums
+// ---------------------------------------------------------------------------
+
+enum Role {
+  USER
+  ADMIN
+}
+
+enum KycStatus {
+  UNVERIFIED
+  PENDING
+  VERIFIED
+  REJECTED
+}
+
+enum UserStatus {
+  ACTIVE
+  SUSPENDED
+}
+
+enum TransactionType {
+  BUY
+  SELL
+  SWAP
+  DEPOSIT
+  WITHDRAW
+  SEND
+  RECEIVE
+  STAKE
+  UNSTAKE
+  REWARD
+}
+
+enum TransactionStatus {
+  PENDING
+  COMPLETED
+  FAILED
+  CANCELLED
+}
+
+enum AlertCondition {
+  ABOVE
+  BELOW
+}
+
+enum DcaFrequency {
+  DAILY
+  WEEKLY
+  MONTHLY
+}
+
+enum NotificationType {
+  TRANSACTION
+  SECURITY
+  PRICE_ALERT
+  SYSTEM
+}
+
+enum TicketStatus {
+  OPEN
+  IN_PROGRESS
+  RESOLVED
+  CLOSED
+}
+
+enum TicketPriority {
+  LOW
+  MEDIUM
+  HIGH
+  URGENT
+}
+
+enum OtpPurpose {
+  LOGIN
+  EMAIL_VERIFICATION
+  WITHDRAWAL
+  TWO_FACTOR_SETUP
+}
+
+// ---------------------------------------------------------------------------
+// Core identity
+// ---------------------------------------------------------------------------
+
+model User {
+  id                    String    @id @default(cuid())
+  firstName             String
+  lastName              String
+  email                 String    @unique
+  passwordHash          String
+  avatarUrl             String?
+  role                  Role      @default(USER)
+  status                UserStatus @default(ACTIVE)
+  kycStatus             KycStatus @default(UNVERIFIED)
+  emailVerified         Boolean   @default(false)
+  twoFactorEnabled      Boolean   @default(false)
+  twoFactorSecret       String?
+  createdAt             DateTime  @default(now())
+  updatedAt             DateTime  @updatedAt
+
+  wallets               Wallet[]
+  transactions          Transaction[]
+  stakingPositions      StakingPosition[]
+  dcaPlans              DcaPlan[]
+  priceAlerts           PriceAlert[]
+  notifications         Notification[]
+  supportTickets        SupportTicket[]
+  kycSubmissions        KycSubmission[]
+  otpCodes              OtpCode[]
+  passwordResetTokens   PasswordResetToken[]
+  emailVerificationTokens EmailVerificationToken[]
+  auditLogsPerformed    AdminAuditLog[] @relation("AuditActor")
+
+  @@index([email])
+}
+
+model KycSubmission {
+  id            String    @id @default(cuid())
+  userId        String
+  user          User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  documentType  String
+  documentUrl   String
+  status        KycStatus @default(PENDING)
+  reviewedBy    String?
+  reviewedAt    DateTime?
+  rejectionNote String?
+  createdAt     DateTime  @default(now())
+
+  @@index([userId])
+  @@index([status])
+}
+
+model OtpCode {
+  id        String     @id @default(cuid())
+  userId    String
+  user      User       @relation(fields: [userId], references: [id], onDelete: Cascade)
+  code      String
+  purpose   OtpPurpose
+  expiresAt DateTime
+  consumedAt DateTime?
+  createdAt DateTime   @default(now())
+
+  @@index([userId, purpose])
+}
+
+model PasswordResetToken {
+  id        String   @id @default(cuid())
+  userId    String
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  token     String   @unique
+  expiresAt DateTime
+  usedAt    DateTime?
+  createdAt DateTime @default(now())
+
+  @@index([token])
+}
+
+model EmailVerificationToken {
+  id        String   @id @default(cuid())
+  userId    String
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  token     String   @unique
+  expiresAt DateTime
+  usedAt    DateTime?
+  createdAt DateTime @default(now())
+
+  @@index([token])
+}
+
+// ---------------------------------------------------------------------------
+// Wallet & holdings
+// ---------------------------------------------------------------------------
+
+model Wallet {
+  id        String    @id @default(cuid())
+  userId    String
+  user      User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  label     String    @default("Main Wallet")
+  createdAt DateTime  @default(now())
+
+  holdings  Holding[]
+
+  @@index([userId])
+}
+
+model Holding {
+  id        String   @id @default(cuid())
+  walletId  String
+  wallet    Wallet   @relation(fields: [walletId], references: [id], onDelete: Cascade)
+  symbol    String
+  amount    Decimal  @default(0) @db.Decimal(24, 10)
+  address   String?
+  updatedAt DateTime @updatedAt
+
+  @@unique([walletId, symbol])
+  @@index([symbol])
+}
+
+model Transaction {
+  id            String            @id @default(cuid())
+  userId        String
+  user          User              @relation(fields: [userId], references: [id], onDelete: Cascade)
+  type          TransactionType
+  status        TransactionStatus @default(PENDING)
+  asset         String
+  amount        Decimal           @db.Decimal(24, 10)
+  usdValue      Decimal           @db.Decimal(18, 2)
+  fee           Decimal           @default(0) @db.Decimal(18, 2)
+  counterparty  String?
+  txHash        String?
+  createdAt     DateTime          @default(now())
+  updatedAt     DateTime          @updatedAt
+
+  @@index([userId])
+  @@index([status])
+  @@index([type])
+}
+
+// ---------------------------------------------------------------------------
+// Investment products
+// ---------------------------------------------------------------------------
+
+model StakingPosition {
+  id             String   @id @default(cuid())
+  userId         String
+  user           User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  asset          String
+  amount         Decimal  @db.Decimal(24, 10)
+  apy            Decimal  @db.Decimal(5, 2)
+  lockPeriodDays Int      @default(0)
+  startDate      DateTime @default(now())
+  endDate        DateTime?
+  rewardsEarned  Decimal  @default(0) @db.Decimal(24, 10)
+  active         Boolean  @default(true)
+
+  @@index([userId])
+}
+
+model DcaPlan {
+  id          String       @id @default(cuid())
+  userId      String
+  user        User         @relation(fields: [userId], references: [id], onDelete: Cascade)
+  asset       String
+  amountUsd   Decimal      @db.Decimal(18, 2)
+  frequency   DcaFrequency
+  nextRunDate DateTime
+  active      Boolean      @default(true)
+  createdAt   DateTime     @default(now())
+
+  @@index([userId])
+}
+
+model PriceAlert {
+  id          String         @id @default(cuid())
+  userId      String
+  user        User           @relation(fields: [userId], references: [id], onDelete: Cascade)
+  asset       String
+  targetPrice Decimal        @db.Decimal(18, 2)
+  condition   AlertCondition
+  active      Boolean        @default(true)
+  triggeredAt DateTime?
+  createdAt   DateTime       @default(now())
+
+  @@index([userId])
+}
+
+// ---------------------------------------------------------------------------
+// Notifications & support
+// ---------------------------------------------------------------------------
+
+model Notification {
+  id          String            @id @default(cuid())
+  userId      String
+  user        User              @relation(fields: [userId], references: [id], onDelete: Cascade)
+  type        NotificationType
+  title       String
+  description String
+  read        Boolean           @default(false)
+  createdAt   DateTime          @default(now())
+
+  @@index([userId, read])
+}
+
+model SupportTicket {
+  id        String         @id @default(cuid())
+  userId    String
+  user      User           @relation(fields: [userId], references: [id], onDelete: Cascade)
+  subject   String
+  message   String
+  status    TicketStatus   @default(OPEN)
+  priority  TicketPriority @default(MEDIUM)
+  createdAt DateTime       @default(now())
+  updatedAt DateTime       @updatedAt
+
+  @@index([status])
+}
+
+model AdminAuditLog {
+  id        String   @id @default(cuid())
+  actorId   String
+  actor     User     @relation("AuditActor", fields: [actorId], references: [id])
+  action    String
+  targetId  String?
+  metadata  Json?
+  createdAt DateTime @default(now())
+
+  @@index([actorId])
+}
