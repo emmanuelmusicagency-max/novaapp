@@ -1,0 +1,12 @@
+User-agent: *
+Allow: /
+Disallow: /dashboard
+Disallow: /wallet
+Disallow: /invest
+Disallow: /transactions
+Disallow: /notifications
+Disallow: /settings
+Disallow: /support
+Disallow: /admin
+
+Sitemap: https://novabank.io/sitemap.xml
